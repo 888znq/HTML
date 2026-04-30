@@ -6,7 +6,7 @@
 <meta name="theme-color" content="#003300">
 <link rel="manifest" href="manifest.json">
 <link rel="apple-touch-icon" href="icon-192.png">
-<title>AI Compile - Hardcoded Sync</title>
+<title>AI Compile - GitHub Sync</title>
 <style>
 * { margin: 0; padding: 0; box-sizing: border-box; }
 html, body { width: 100%; height: 100%; overflow: hidden; background: #000432; font-family: 'JetBrains Mono', monospace; padding-bottom: 68px; }
@@ -44,6 +44,20 @@ button.btn:disabled { opacity: 0.5; cursor: not-allowed; border-color: #555; col
 .modal-box h3 { color: #00ff88; padding: 14px 18px; border-bottom: 1px solid #1a1f4e; font-size: 13px; }
 .modal-actions { display: flex; gap: 10px; padding: 14px 18px; border-top: 1px solid #1a1f4e; justify-content: flex-end; }
 #patchErrorBody { flex: 1; overflow-y: auto; padding: 14px 18px; font-size: 11px; color: #f8f8f2; white-space: pre-wrap; line-height: 1.6; }
+
+/* ── Token Settings Modal ── */
+#tokenModal .modal-box { border-color: #00ff88; }
+#tokenModal .token-field { display: flex; flex-direction: column; gap: 5px; padding: 14px 18px; border-bottom: 1px solid #1a1f4e; }
+#tokenModal label { font-size: 10px; color: #6272a4; letter-spacing: 1px; text-transform: uppercase; }
+#tokenModal input { background: rgba(0,0,0,0.5); border: 1px solid #1a1f4e; border-radius: 6px; color: #f8f8f2; padding: 8px 10px; font: 12px 'JetBrains Mono', monospace; outline: none; transition: border-color 0.2s; }
+#tokenModal input:focus { border-color: #00ff88; }
+#tokenModal .token-status { font-size: 10px; padding: 8px 18px; color: #6272a4; }
+#tokenModal .token-status.ok { color: #00ff88; }
+#tokenModal .token-status.err { color: #ff5555; }
+#tokenSaveBtn { background: rgba(0,255,136,0.15); border-color: #00ff88; color: #00ff88; }
+#tokenSaveBtn:hover { background: rgba(0,255,136,0.3); }
+#tokenClearBtn { background: rgba(255,85,85,0.1); border-color: #ff5555; color: #ff5555; }
+#tokenClearBtn:hover { background: rgba(255,85,85,0.25); }
 </style>
 </head>
 <body>
@@ -72,6 +86,7 @@ button.btn:disabled { opacity: 0.5; cursor: not-allowed; border-color: #555; col
     <option value="">⬇ Sync Repo...</option>
   </select>
   <button id="githubPushBtn" class="btn" style="border-color: #00ff88; color: #00ff88;">⬆ Push Changes</button>
+  <button id="tokenSettingsBtn" class="btn" style="border-color: #6272a4; color: #6272a4; max-width: 46px;" title="GitHub Token Settings">🔑</button>
 </div>
 
 <div id="patchErrorModal" class="modal-bg">
@@ -84,6 +99,36 @@ button.btn:disabled { opacity: 0.5; cursor: not-allowed; border-color: #555; col
   </div>
 </div>
 
+<!-- ── Token Settings Modal ── -->
+<div id="tokenModal" class="modal-bg">
+  <div class="modal-box" style="max-width:440px;">
+    <h3>🔑 GitHub Token Settings</h3>
+    <div class="token-field">
+      <label>GitHub Username / Owner</label>
+      <input id="tokenOwnerInput" type="text" placeholder="e.g. octocat" autocomplete="off" spellcheck="false">
+    </div>
+    <div class="token-field">
+      <label>Personal Access Token (PAT)</label>
+      <input id="tokenInput" type="password" placeholder="ghp_xxxxxxxxxxxxxxxxxxxx" autocomplete="off" spellcheck="false">
+    </div>
+    <div class="token-field">
+      <label>Default Branch</label>
+      <input id="tokenBranchInput" type="text" placeholder="main" autocomplete="off" spellcheck="false">
+    </div>
+    <div class="token-field">
+      <label>Default File Path</label>
+      <input id="tokenPathInput" type="text" placeholder="index.html" autocomplete="off" spellcheck="false">
+    </div>
+    <div id="tokenStatusMsg" class="token-status">Token is stored only in your browser's localStorage.</div>
+    <div class="modal-actions">
+      <button id="tokenClearBtn" class="btn">🗑 Clear Saved</button>
+      <button id="tokenVerifyBtn" class="btn" style="border-color:#6272a4;color:#6272a4;">🔍 Verify</button>
+      <button id="tokenSaveBtn" class="btn">💾 Save &amp; Apply</button>
+      <button onclick="document.getElementById('tokenModal').classList.remove('show')" class="btn" style="border-color:#555;color:#888;">✕ Close</button>
+    </div>
+  </div>
+</div>
+
 <div id="statusBar">
   <span id="statusLeft">🌐 GitHub Sync Mode</span>
   <span id="statusRight">📄 Ready</span>
@@ -92,11 +137,77 @@ button.btn:disabled { opacity: 0.5; cursor: not-allowed; border-color: #555; col
 <div id="toast"></div>
 
 <script>
-  // ── HARDCODE YOUR DETAILS HERE ──
-  const HC_OWNER = "888znq";             // Your GitHub Username
-  const HC_TOKEN = "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";         // Your Personal Access Token
-  const HC_PATH  = "index.html";                // Default file to pull/push
-  const HC_BRANCH = "main";                     // Default branch
+  // ── HARDCODE YOUR DETAILS HERE (optional fallback) ──
+  const HC_OWNER  = "888znq";
+  const HC_TOKEN  = "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";
+  const HC_PATH   = "index.html";
+  const HC_BRANCH = "main";
+
+  // ── RUNTIME CONFIG: localStorage overrides hardcoded values ──
+  function getToken()  { return localStorage.getItem('gh_token')  || HC_TOKEN;  }
+  function getOwner()  { return localStorage.getItem('gh_owner')  || HC_OWNER;  }
+  function getBranch() { return localStorage.getItem('gh_branch') || HC_BRANCH; }
+  function getPath()   { return localStorage.getItem('gh_path')   || HC_PATH;   }
+
+  // ── TOKEN SETTINGS MODAL ──
+  function openTokenModal() {
+    document.getElementById('tokenOwnerInput').value  = localStorage.getItem('gh_owner')  || '';
+    document.getElementById('tokenInput').value       = localStorage.getItem('gh_token')  || '';
+    document.getElementById('tokenBranchInput').value = localStorage.getItem('gh_branch') || 'main';
+    document.getElementById('tokenPathInput').value   = localStorage.getItem('gh_path')   || 'index.html';
+    const saved = localStorage.getItem('gh_token');
+    setTokenStatus(saved ? `✅ Token saved (${saved.substring(0,10)}…). Edit fields to update.` : 'No token saved yet. Enter your details and click Save.', saved ? 'ok' : '');
+    document.getElementById('tokenModal').classList.add('show');
+  }
+
+  function setTokenStatus(msg, cls) {
+    const el = document.getElementById('tokenStatusMsg');
+    el.textContent = msg;
+    el.className = 'token-status ' + (cls || '');
+  }
+
+  document.getElementById('tokenSettingsBtn').addEventListener('click', openTokenModal);
+
+  document.getElementById('tokenSaveBtn').addEventListener('click', () => {
+    const owner  = document.getElementById('tokenOwnerInput').value.trim();
+    const token  = document.getElementById('tokenInput').value.trim();
+    const branch = document.getElementById('tokenBranchInput').value.trim() || 'main';
+    const path   = document.getElementById('tokenPathInput').value.trim()   || 'index.html';
+    if (!token) { setTokenStatus('❌ Token cannot be empty.', 'err'); return; }
+    if (!owner) { setTokenStatus('❌ Owner/Username cannot be empty.', 'err'); return; }
+    localStorage.setItem('gh_token',  token);
+    localStorage.setItem('gh_owner',  owner);
+    localStorage.setItem('gh_branch', branch);
+    localStorage.setItem('gh_path',   path);
+    setTokenStatus(`✅ Saved! Owner: ${owner} | Branch: ${branch}`, 'ok');
+    toast('Token saved! Reloading repos…');
+    setTimeout(() => { loadToolbarRepos(); document.getElementById('tokenModal').classList.remove('show'); }, 800);
+  });
+
+  document.getElementById('tokenClearBtn').addEventListener('click', () => {
+    ['gh_token','gh_owner','gh_branch','gh_path','gh_active_owner','gh_active_repo'].forEach(k => localStorage.removeItem(k));
+    document.getElementById('tokenOwnerInput').value  = '';
+    document.getElementById('tokenInput').value       = '';
+    document.getElementById('tokenBranchInput').value = 'main';
+    document.getElementById('tokenPathInput').value   = 'index.html';
+    setTokenStatus('🗑 Cleared. Falling back to hardcoded values (if any).', '');
+    toast('Saved token cleared.');
+    loadToolbarRepos();
+  });
+
+  document.getElementById('tokenVerifyBtn').addEventListener('click', async () => {
+    const token = document.getElementById('tokenInput').value.trim() || getToken();
+    if (!token || token.includes('yourTokenHere')) { setTokenStatus('❌ No token to verify.', 'err'); return; }
+    setTokenStatus('⏳ Verifying…', '');
+    try {
+      const res = await fetch('https://api.github.com/user', {
+        headers: { 'Authorization': `token ${token}`, 'Accept': 'application/vnd.github.v3+json' }
+      });
+      const json = await res.json();
+      if (res.ok) setTokenStatus(`✅ Valid! Logged in as: ${json.login}`, 'ok');
+      else setTokenStatus(`❌ Invalid token: ${json.message}`, 'err');
+    } catch(e) { setTokenStatus(`❌ Network error: ${e.message}`, 'err'); }
+  });
 
   let sourceContent = '';
   let versions = [''];
@@ -273,14 +384,17 @@ Ignore indentation differences. Provide code only.]`;
     toast("AI Context Ready!");
   });
 
-  /* ── GITHUB CORE (Hardcoded) ── */
+  /* ── GITHUB CORE ── */
   async function ghApi(method, endpoint, body = null) {
-    if(HC_TOKEN === "ghp_yourTokenHere") throw new Error("Hardcode your details in the script first!");
-    
-    const url = `https://api.github.com/repos/${localStorage.getItem('gh_active_owner')||HC_OWNER}/${localStorage.getItem('gh_active_repo')}/contents/${endpoint}?ref=${HC_BRANCH}`;
+    const token = getToken();
+    if (!token || token.includes("yourTokenHere")) throw new Error("No token set. Click 🔑 to add your token.");
+    const owner  = localStorage.getItem('gh_active_owner') || getOwner();
+    const repo   = localStorage.getItem('gh_active_repo');
+    if (!repo) throw new Error("No repo selected.");
+    const url = `https://api.github.com/repos/${owner}/${repo}/contents/${endpoint}?ref=${getBranch()}`;
     const res = await fetch(url, {
       method,
-      headers: { 'Authorization': `token ${HC_TOKEN}`, 'Accept': 'application/vnd.github.v3+json' },
+      headers: { 'Authorization': `token ${token}`, 'Accept': 'application/vnd.github.v3+json' },
       body: body ? JSON.stringify(body) : null
     });
     const json = await res.json();
@@ -289,27 +403,30 @@ Ignore indentation differences. Provide code only.]`;
   }
 
   async function loadToolbarRepos() {
-    if(!HC_TOKEN || HC_TOKEN.includes("yourTokenHere")) return;
+    const token = getToken();
+    if(!token || token.includes("yourTokenHere")) return;
     const sel = document.getElementById('toolbarRepoSelect');
+    sel.innerHTML = '<option value="">⏳ Loading repos…</option>';
     try {
       const res = await fetch(`https://api.github.com/user/repos?per_page=100&sort=updated`, {
         headers: { 
-          'Authorization': `token ${HC_TOKEN.trim()}`,
+          'Authorization': `token ${token.trim()}`,
           'Accept': 'application/vnd.github.v3+json',
           'Cache-Control': 'no-cache'
         }
       });
       
       if (!res.ok) {
-        throw new Error(res.status === 401 ? 'Revoked/Invalid' : `Status: ${res.status}`);
+        throw new Error(res.status === 401 ? 'Invalid/Revoked token — click 🔑 to update' : `Status: ${res.status}`);
       }
       
       const repos = await res.json();
       sel.innerHTML = '<option value="">⬇ Sync Repo...</option>' + 
         repos.map(r => `<option value="${r.owner.login}/${r.name}">${r.name}</option>`).join('');
+      document.getElementById('statusLeft').textContent = `🌐 GitHub: ${getOwner()}`;
     } catch(e) { 
       console.error('GitHub API Error:', e.message);
-      sel.innerHTML = `<option>Auth Error: ${e.message}</option>`; 
+      sel.innerHTML = `<option value="">❌ ${e.message}</option>`; 
     }
   }
 
@@ -320,8 +437,8 @@ Ignore indentation differences. Provide code only.]`;
     localStorage.setItem('gh_active_repo', repo);
     
     try {
-      toast(`Syncing ${HC_PATH}...`);
-      const data = await ghApi('GET', HC_PATH);
+      toast(`Syncing ${getPath()}...`);
+      const data = await ghApi('GET', getPath());
       sourceContent = fromBase64(data.content.replace(/\n/g, ''));
       
       versions = [sourceContent];
@@ -330,15 +447,15 @@ Ignore indentation differences. Provide code only.]`;
 
       monacoReady = false; monacoEditor.setValue(sourceContent); monacoReady = true;
       render(sourceContent);
-      document.getElementById('statusRight').textContent = `📄 ${repo}/${HC_PATH}`;
+      document.getElementById('statusRight').textContent = `📄 ${repo}/${getPath()}`;
     } catch(err) { toast(`Sync Failed: ${err.message}`); }
   });
 
   document.getElementById('githubPushBtn').addEventListener('click', async () => {
     try {
-      const meta = await ghApi('GET', HC_PATH);
+      const meta = await ghApi('GET', getPath());
       const payload = { message: "AI Update", content: toBase64(sourceContent), sha: meta.sha };
-      await ghApi('PUT', HC_PATH, payload);
+      await ghApi('PUT', getPath(), payload);
       toast("Pushed successfully!");
     } catch(e) { toast(`Push Error: ${e.message}`); }
   });
