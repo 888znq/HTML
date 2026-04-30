@@ -289,26 +289,27 @@ Ignore indentation differences. Provide code only.]`;
   }
 
   async function loadToolbarRepos() {
-    // Check if token is still the placeholder or empty
     if(!HC_TOKEN || HC_TOKEN.includes("yourTokenHere")) return;
     const sel = document.getElementById('toolbarRepoSelect');
     try {
       const res = await fetch(`https://api.github.com/user/repos?per_page=100&sort=updated`, {
         headers: { 
-          'Authorization': `token ${HC_TOKEN}`,
+          'Authorization': `token ${HC_TOKEN.trim()}`,
           'Accept': 'application/vnd.github.v3+json',
           'Cache-Control': 'no-cache'
         }
       });
       
-      if (!res.ok) throw new Error('Unauthorized');
+      if (!res.ok) {
+        throw new Error(res.status === 401 ? 'Revoked/Invalid' : `Status: ${res.status}`);
+      }
       
       const repos = await res.json();
       sel.innerHTML = '<option value="">⬇ Sync Repo...</option>' + 
         repos.map(r => `<option value="${r.owner.login}/${r.name}">${r.name}</option>`).join('');
     } catch(e) { 
-      console.error(e);
-      sel.innerHTML = '<option>Auth Error (Check Token)</option>'; 
+      console.error('GitHub API Error:', e.message);
+      sel.innerHTML = `<option>Auth Error: ${e.message}</option>`; 
     }
   }
 
