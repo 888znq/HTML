@@ -289,19 +289,27 @@ Ignore indentation differences. Provide code only.]`;
   }
 
   async function loadToolbarRepos() {
-    if(HC_TOKEN.startsWith("ghp_yourToken")) return;
+    // Check if token is still the placeholder or empty
+    if(!HC_TOKEN || HC_TOKEN.includes("yourTokenHere")) return;
     const sel = document.getElementById('toolbarRepoSelect');
     try {
       const res = await fetch(`https://api.github.com/user/repos?per_page=100&sort=updated`, {
         headers: { 
-          'Authorization': `Bearer ${HC_TOKEN}`,
-          'Accept': 'application/vnd.github.v3+json'
+          'Authorization': `token ${HC_TOKEN}`,
+          'Accept': 'application/vnd.github.v3+json',
+          'Cache-Control': 'no-cache'
         }
       });
+      
+      if (!res.ok) throw new Error('Unauthorized');
+      
       const repos = await res.json();
       sel.innerHTML = '<option value="">⬇ Sync Repo...</option>' + 
         repos.map(r => `<option value="${r.owner.login}/${r.name}">${r.name}</option>`).join('');
-    } catch(e) { sel.innerHTML = '<option>Auth Error</option>'; }
+    } catch(e) { 
+      console.error(e);
+      sel.innerHTML = '<option>Auth Error (Check Token)</option>'; 
+    }
   }
 
   document.getElementById('toolbarRepoSelect').addEventListener('change', async (e) => {
