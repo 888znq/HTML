@@ -137,17 +137,11 @@ button.btn:disabled { opacity: 0.5; cursor: not-allowed; border-color: #555; col
 <div id="toast"></div>
 
 <script>
-  // ── HARDCODE YOUR DETAILS HERE (optional fallback) ──
-  const HC_OWNER  = "888znq";
-  const HC_TOKEN  = "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";
-  const HC_PATH   = "index.html";
-  const HC_BRANCH = "main";
-
-  // ── RUNTIME CONFIG: localStorage overrides hardcoded values ──
-  function getToken()  { return localStorage.getItem('gh_token')  || HC_TOKEN;  }
-  function getOwner()  { return localStorage.getItem('gh_owner')  || HC_OWNER;  }
-  function getBranch() { return localStorage.getItem('gh_branch') || HC_BRANCH; }
-  function getPath()   { return localStorage.getItem('gh_path')   || HC_PATH;   }
+  // ── RUNTIME CONFIG: all values from localStorage only ──
+  function getToken()  { return (localStorage.getItem('gh_token')  || '').trim(); }
+  function getOwner()  { return (localStorage.getItem('gh_owner')  || '').trim(); }
+  function getBranch() { return (localStorage.getItem('gh_branch') || 'main').trim(); }
+  function getPath()   { return (localStorage.getItem('gh_path')   || 'index.html').trim(); }
 
   // ── TOKEN SETTINGS MODAL ──
   function openTokenModal() {
@@ -180,8 +174,9 @@ button.btn:disabled { opacity: 0.5; cursor: not-allowed; border-color: #555; col
     localStorage.setItem('gh_branch', branch);
     localStorage.setItem('gh_path',   path);
     setTokenStatus(`✅ Saved! Owner: ${owner} | Branch: ${branch}`, 'ok');
-    toast('Token saved! Reloading repos…');
-    setTimeout(() => { loadToolbarRepos(); document.getElementById('tokenModal').classList.remove('show'); }, 800);
+    toast('Token saved! Loading repos…');
+    document.getElementById('tokenModal').classList.remove('show');
+    loadToolbarRepos();
   });
 
   document.getElementById('tokenClearBtn').addEventListener('click', () => {
@@ -387,7 +382,7 @@ Ignore indentation differences. Provide code only.]`;
   /* ── GITHUB CORE ── */
   async function ghApi(method, endpoint, body = null) {
     const token = getToken();
-    if (!token || token.includes("yourTokenHere")) throw new Error("No token set. Click 🔑 to add your token.");
+    if (!token) throw new Error("No token set — click 🔑 to add your GitHub token.");
     const owner  = localStorage.getItem('gh_active_owner') || getOwner();
     const repo   = localStorage.getItem('gh_active_repo');
     if (!repo) throw new Error("No repo selected.");
@@ -404,29 +399,37 @@ Ignore indentation differences. Provide code only.]`;
 
   async function loadToolbarRepos() {
     const token = getToken();
-    if(!token || token.includes("yourTokenHere")) return;
     const sel = document.getElementById('toolbarRepoSelect');
+    if (!token) {
+      sel.innerHTML = '<option value="">🔑 Click 🔑 to set token</option>';
+      return;
+    }
     sel.innerHTML = '<option value="">⏳ Loading repos…</option>';
     try {
-      const res = await fetch(`https://api.github.com/user/repos?per_page=100&sort=updated`, {
-        headers: { 
-          'Authorization': `token ${token.trim()}`,
+      const res = await fetch('https://api.github.com/user/repos?per_page=100&sort=updated', {
+        headers: {
+          'Authorization': 'token ' + token,
           'Accept': 'application/vnd.github.v3+json',
           'Cache-Control': 'no-cache'
         }
       });
-      
       if (!res.ok) {
-        throw new Error(res.status === 401 ? 'Invalid/Revoked token — click 🔑 to update' : `Status: ${res.status}`);
+        const errJson = await res.json().catch(() => ({}));
+        throw new Error(res.status === 401
+          ? 'Token invalid/revoked — click 🔑 to update'
+          : 'HTTP ' + res.status + ': ' + (errJson.message || 'Unknown error'));
       }
-      
       const repos = await res.json();
-      sel.innerHTML = '<option value="">⬇ Sync Repo...</option>' + 
-        repos.map(r => `<option value="${r.owner.login}/${r.name}">${r.name}</option>`).join('');
-      document.getElementById('statusLeft').textContent = `🌐 GitHub: ${getOwner()}`;
-    } catch(e) { 
-      console.error('GitHub API Error:', e.message);
-      sel.innerHTML = `<option value="">❌ ${e.message}</option>`; 
+      if (!Array.isArray(repos) || repos.length === 0) {
+        sel.innerHTML = '<option value="">No repos found</option>';
+        return;
+      }
+      sel.innerHTML = '<option value="">⬇ Sync Repo...</option>' +
+        repos.map(r => '<option value="' + r.owner.login + '/' + r.name + '">' + r.name + '</option>').join('');
+      document.getElementById('statusLeft').textContent = '🌐 GitHub: ' + getOwner();
+    } catch(e) {
+      console.error('GitHub loadToolbarRepos error:', e);
+      sel.innerHTML = '<option value="">❌ ' + e.message + '</option>';
     }
   }
 
