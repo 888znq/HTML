@@ -1,0 +1,334 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AI Compile - Hardcoded Sync</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+html, body { width: 100%; height: 100%; overflow: hidden; background: #000432; font-family: 'JetBrains Mono', monospace; padding-bottom: 68px; }
+
+/* ── Split-pane layout ── */
+#splitPane { position: fixed; inset: 0; bottom: 68px; display: flex; flex-direction: row; }
+#editorPane { width: 0; min-width: 0; overflow: hidden; transition: width 0.25s ease; background: #0d0f2b; border-right: 2px solid #1a1f4e; flex-shrink: 0; position: relative; }
+#editorPane.open { width: 50%; min-width: 280px; }
+#monacoContainer { width: 100%; height: 100%; }
+#previewPane { flex: 1; overflow: hidden; position: relative; }
+#preview { position: absolute; inset: 0; width: 100%; height: 100%; border: none; background: #000432; z-index: 1; }
+#fring { position: absolute; inset: 0; z-index: 99; border: 3px solid #00ff88; box-shadow: inset 0 0 60px rgba(0, 255, 136, .12); pointer-events: none; opacity: 0; transition: opacity .5s; }
+#fring.on { opacity: 1; }
+
+/* ── Status Bar ── */
+#statusBar { position: fixed; bottom: 0; left: 0; width: 100%; height: 22px; background: rgba(0, 0, 0, 0.9); border-top: 1px solid #333; z-index: 999; display: flex; align-items: center; justify-content: space-between; padding: 0 15px; font-size: 11px; color: #00ff88; letter-spacing: 0.5px; }
+
+/* ── Toolbar ── */
+#toolbar { position: fixed; bottom: 22px; left: 0; width: 100%; height: 46px; background: #0d0f2b; border-top: 1px solid #1a1f4e; z-index: 100; display: flex; align-items: stretch; padding: 0; gap: 0; overflow-x: auto; white-space: nowrap; box-shadow: 0 -4px 10px rgba(0,0,0,0.5); }
+#toolbar::-webkit-scrollbar { height: 6px; }
+#toolbar::-webkit-scrollbar-thumb { background: #6272a4; border-radius: 3px; }
+
+button.btn, select.btn { background: rgba(0, 0, 0, 0.6); border: 1px solid rgba(0, 255, 136, 0.3); color: #00ff88; padding: 6px 12px; border-radius: 0; font: 700 11px/1 'JetBrains Mono', monospace; flex: 1; cursor: pointer; backdrop-filter: blur(12px); outline: none; box-shadow: 0 2px 8px 0 rgba(0, 0, 0, 0.2); transition: all 0.2s ease; }
+select.btn { padding: 5px 10px; }
+button.btn:hover, select.btn:hover { background: rgba(0, 255, 136, 0.15); border-color: #00ff88; transform: translateY(-2px); }
+button.btn:active { transform: scale(0.96); }
+button.btn:disabled { opacity: 0.5; cursor: not-allowed; border-color: #555; color: #888; }
+
+/* ── Modals ── */
+#toast { position: fixed; bottom: 80px; left: 50%; transform: translateX(-50%); padding: 8px 20px; border-radius: 20px; font: 700 11px/1 'JetBrains Mono', monospace; background: rgba(0, 0, 0, .85); border: 1px solid rgba(0, 255, 136, .4); color: #00ff88; backdrop-filter: blur(8px); z-index: 100; pointer-events: none; opacity: 0; transition: opacity .25s, transform .25s; }
+#toast.show { opacity: 1; transform: translate(-50%, -5px); }
+.modal-bg { position: fixed; inset: 0; z-index: 500; background: rgba(0,0,0,0.85); display: none; align-items: center; justify-content: center; backdrop-filter: blur(6px); }
+.modal-bg.show { display: flex; }
+.modal-box { background: #0d0f2b; border: 1px solid #00ff88; border-radius: 12px; width: min(92vw, 880px); max-height: 80vh; overflow: hidden; display: flex; flex-direction: column; box-shadow: 0 0 60px rgba(0,255,136,0.15); }
+.modal-box h3 { color: #00ff88; padding: 14px 18px; border-bottom: 1px solid #1a1f4e; font-size: 13px; }
+.modal-actions { display: flex; gap: 10px; padding: 14px 18px; border-top: 1px solid #1a1f4e; justify-content: flex-end; }
+#patchErrorBody { flex: 1; overflow-y: auto; padding: 14px 18px; font-size: 11px; color: #f8f8f2; white-space: pre-wrap; line-height: 1.6; }
+</style>
+</head>
+<body>
+
+<script>var require = { paths: { 'vs': 'https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/0.44.0/min/vs' } };</script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/0.44.0/min/vs/loader.min.js"></script>
+
+<div id="splitPane">
+  <div id="editorPane"><div id="monacoContainer"></div></div>
+  <div id="previewPane">
+    <iframe id="preview" sandbox="allow-scripts allow-same-origin allow-modals allow-forms allow-popups"></iframe>
+    <div id="fring"></div>
+  </div>
+</div>
+
+<div id="toolbar">
+  <select id="versionSelect" class="btn" style="border-color: #00ff88; color: #00ff88; max-width: 140px;" title="Version History">
+    <option value="0">v1 (Current)</option>
+  </select>
+  <button id="pasteProcessBtn" class="btn" style="border-color: #00ff88; color: #00ff88;">📋 Paste Chunks</button>
+  
+  <input id="userPromptInput" type="text" placeholder="AI instructions..." style="background: rgba(0,0,0,0.6); border: 1px solid #00ff88; color: #f8f8f2; padding: 4px 8px; font-family: 'JetBrains Mono', monospace; font-size: 11px; outline: none; width: 160px;">
+  <button id="promptBtn" class="btn" style="border-color: #00ff88; color: #00ff88;">🤖 Copy Context</button>
+
+  <select id="toolbarRepoSelect" class="btn" style="border-color: #00ff88; color: #00ff88; max-width: 200px;">
+    <option value="">⬇ Sync Repo...</option>
+  </select>
+  <button id="githubPushBtn" class="btn" style="border-color: #00ff88; color: #00ff88;">⬆ Push Changes</button>
+</div>
+
+<div id="patchErrorModal" class="modal-bg">
+  <div class="modal-box" style="border-color:#ff5555;">
+    <h3>❌ Patch Failure</h3>
+    <div id="patchErrorBody"></div>
+    <div class="modal-actions">
+      <button onclick="document.getElementById('patchErrorModal').classList.remove('show')" class="btn">Dismiss</button>
+    </div>
+  </div>
+</div>
+
+<div id="statusBar">
+  <span id="statusLeft">🌐 GitHub Sync Mode</span>
+  <span id="statusRight">📄 Ready</span>
+</div>
+
+<div id="toast"></div>
+
+<script>
+  // ── HARDCODE YOUR DETAILS HERE ──
+  const HC_OWNER = "888znq";             // Your GitHub Username
+  const HC_TOKEN = "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";         // Your Personal Access Token
+  const HC_PATH  = "index.html";                // Default file to pull/push
+  const HC_BRANCH = "main";                     // Default branch
+
+  let sourceContent = '';
+  let versions = [''];
+  let currentVersion = 0;
+  
+  let monacoEditor = null;
+  let monacoReady = false;
+  let typingTimer;
+  
+  const $pv = document.getElementById('preview');
+  const $toast = document.getElementById('toast');
+
+  function toBase64(str) { return window.btoa(unescape(encodeURIComponent(str))); }
+  function fromBase64(str) { return decodeURIComponent(escape(window.atob(str))); }
+
+  require(['vs/editor/editor.main'], function() {
+    monacoEditor = monaco.editor.create(document.getElementById('monacoContainer'), {
+      value: '', language: 'html', theme: 'vs-dark', fontSize: 12, minimap: { enabled: false }, automaticLayout: true
+    });
+    monacoEditor.onDidChangeModelContent(() => {
+      if (!monacoReady) return;
+      const val = monacoEditor.getValue();
+      if (val !== sourceContent) {
+        sourceContent = val;
+        render(sourceContent);
+        clearTimeout(typingTimer);
+        typingTimer = setTimeout(saveVersion, 1200);
+      }
+    });
+    monacoReady = true;
+  });
+
+  function toast(msg) { $toast.textContent = msg; $toast.classList.add('show'); setTimeout(() => $toast.classList.remove('show'), 2500); }
+  
+  function render(src) {
+    const bridge = `<script>window.onerror=function(m,s,l){window.parent.postMessage({err:m},'*');};<\/script>`;
+    $pv.srcdoc = bridge + src;
+    document.getElementById('fring').classList.add('on');
+    setTimeout(() => document.getElementById('fring').classList.remove('on'), 400);
+  }
+
+  /* ── VERSION SWITCHING SYSTEM ── */
+  function saveVersion() {
+    if (currentVersion < versions.length - 1) {
+      versions = versions.slice(0, currentVersion + 1);
+    }
+    if (versions[versions.length - 1] !== sourceContent) {
+      versions.push(sourceContent);
+      if (versions.length > 50) versions.shift(); 
+      currentVersion = versions.length - 1;
+      updateVersionUI();
+    }
+  }
+
+  function updateVersionUI() {
+    const sel = document.getElementById('versionSelect');
+    if (!sel) return;
+    sel.innerHTML = '';
+    versions.forEach((v, i) => {
+      const opt = document.createElement('option');
+      opt.value = i;
+      opt.textContent = `v${i + 1}${i === currentVersion ? ' (Active)' : ''}`;
+      if (i === currentVersion) opt.selected = true;
+      sel.appendChild(opt);
+    });
+  }
+
+  document.getElementById('versionSelect').addEventListener('change', (e) => {
+    const idx = parseInt(e.target.value, 10);
+    if (idx >= 0 && idx < versions.length) {
+      currentVersion = idx;
+      sourceContent = versions[idx];
+      monacoReady = false; monacoEditor.setValue(sourceContent); monacoReady = true;
+      render(sourceContent);
+      updateVersionUI();
+    }
+  });
+
+  /* ── ADVANCED CHUNK PARSER & MATCHER ── */
+  function parseAllBlocks(text) {
+    return text.split(/={3}BLOCK={3}/i).map(block => {
+      const parts = block.split(/={3}SPLIT={3}/i);
+      if (parts.length < 2) return null;
+      // Trims only empty lines at the very start/end, preserves internal indentation
+      return { 
+        oldCode: parts[0].replace(/^\s*[\r\n]/, '').replace(/[\r\n]\s*$/, ''), 
+        newCode: parts[1].replace(/^\s*[\r\n]/, '').replace(/[\r\n]\s*$/, '') 
+      };
+    }).filter(b => b !== null);
+  }
+
+  function applyPatch(parsed) {
+    // 1. Try an exact string match first
+    let idx = sourceContent.indexOf(parsed.oldCode);
+    let matchedLength = parsed.oldCode.length;
+
+    // 2. If exact fails, use the Whitespace-Agnostic Normalization Fallback
+    if (idx === -1) {
+      const stripWS = (str) => str.replace(/\s+/g, '');
+      const oldNorm = stripWS(parsed.oldCode);
+      const srcNorm = stripWS(sourceContent);
+
+      const normIdx = srcNorm.indexOf(oldNorm);
+
+      if (normIdx !== -1) {
+        // We found the logical match, now map it back to original string indexes
+        let currentNormIdx = 0;
+        let startOriginalIdx = -1;
+        let endOriginalIdx = -1;
+
+        for (let i = 0; i < sourceContent.length; i++) {
+          if (!/\s/.test(sourceContent[i])) {
+            if (currentNormIdx === normIdx) startOriginalIdx = i;
+            if (currentNormIdx === normIdx + oldNorm.length - 1) {
+              endOriginalIdx = i + 1; // +1 to include the last character
+              break;
+            }
+            currentNormIdx++;
+          }
+        }
+
+        if (startOriginalIdx !== -1 && endOriginalIdx !== -1) {
+          idx = startOriginalIdx;
+          matchedLength = endOriginalIdx - startOriginalIdx;
+        }
+      }
+    }
+
+    // 3. If both fail, error out.
+    if (idx === -1) {
+      document.getElementById('patchErrorBody').textContent = `Match Failed. Ensure AI provided unique context lines.\n\nTarget Block:\n${parsed.oldCode}`;
+      document.getElementById('patchErrorModal').classList.add('show');
+      return false;
+    }
+
+    // Apply the patch
+    sourceContent = sourceContent.slice(0, idx) + parsed.newCode + sourceContent.slice(idx + matchedLength);
+    saveVersion(); 
+    monacoReady = false; monacoEditor.setValue(sourceContent); monacoReady = true;
+    render(sourceContent);
+    return true;
+  }
+
+  document.getElementById('pasteProcessBtn').addEventListener('click', async () => {
+    try {
+      const text = await navigator.clipboard.readText();
+      const blocks = parseAllBlocks(text);
+      if (blocks.length > 0) {
+        let successCount = 0;
+        blocks.forEach(b => { if(applyPatch(b)) successCount++; });
+        toast(`Applied ${successCount}/${blocks.length} chunk(s)`);
+      } else { toast("No valid blocks found"); }
+    } catch(e) { toast("Clipboard access denied"); }
+  });
+
+  /* ── AI CONTEXT GENERATION ── */
+  // Updated prompt with forced context guardrails
+  const SUPER_PROMPT = `[AI INSTRUCTION: Provide results in "Combined Block Split" format. 
+Structure:
+<exact old code to replace>
+===SPLIT===
+<new replacement code>
+
+Separate multiple edits with ===BLOCK===.
+CRITICAL: Do NOT output the literal labels "[OLD CODE]" or "[NEW CODE]". Output ONLY the raw code separated by the exact delimiters.
+CRITICAL: The old code snippet MUST include at least 2 lines of unchanged surrounding context above and below the edit to ensure a unique mathematical match.
+CRITICAL: NEVER use Non-Breaking Spaces (U+00A0). Use strictly standard spaces (U+0020) for all formatting and indentation.
+Ignore indentation differences. Provide code only.]`;
+
+  document.getElementById('promptBtn').addEventListener('click', async () => {
+    const instruction = document.getElementById('userPromptInput').value.trim();
+    const payload = `USER TASK: ${instruction}\n\nSOURCE:\n\`\`\`html\n${sourceContent}\n\`\`\`\n\n${SUPER_PROMPT}`;
+    await navigator.clipboard.writeText(payload);
+    toast("AI Context Ready!");
+  });
+
+  /* ── GITHUB CORE (Hardcoded) ── */
+  async function ghApi(method, endpoint, body = null) {
+    if(HC_TOKEN === "ghp_yourTokenHere") throw new Error("Hardcode your details in the script first!");
+    
+    const url = `https://api.github.com/repos/${localStorage.getItem('gh_active_owner')||HC_OWNER}/${localStorage.getItem('gh_active_repo')}/contents/${endpoint}?ref=${HC_BRANCH}`;
+    const res = await fetch(url, {
+      method,
+      headers: { 'Authorization': `token ${HC_TOKEN}`, 'Accept': 'application/vnd.github.v3+json' },
+      body: body ? JSON.stringify(body) : null
+    });
+    const json = await res.json();
+    if (!res.ok) throw new Error(json.message);
+    return json;
+  }
+
+  async function loadToolbarRepos() {
+    if(HC_TOKEN === "ghp_yourTokenHere") return;
+    const sel = document.getElementById('toolbarRepoSelect');
+    try {
+      const res = await fetch(`https://api.github.com/user/repos?per_page=100&sort=updated`, {
+        headers: { 'Authorization': `token ${HC_TOKEN}` }
+      });
+      const repos = await res.json();
+      sel.innerHTML = '<option value="">⬇ Sync Repo...</option>' + 
+        repos.map(r => `<option value="${r.owner.login}/${r.name}">${r.name}</option>`).join('');
+    } catch(e) { sel.innerHTML = '<option>Auth Error</option>'; }
+  }
+
+  document.getElementById('toolbarRepoSelect').addEventListener('change', async (e) => {
+    if (!e.target.value) return;
+    const [owner, repo] = e.target.value.split('/');
+    localStorage.setItem('gh_active_owner', owner);
+    localStorage.setItem('gh_active_repo', repo);
+    
+    try {
+      toast(`Syncing ${HC_PATH}...`);
+      const data = await ghApi('GET', HC_PATH);
+      sourceContent = fromBase64(data.content.replace(/\n/g, ''));
+      
+      versions = [sourceContent];
+      currentVersion = 0;
+      updateVersionUI();
+
+      monacoReady = false; monacoEditor.setValue(sourceContent); monacoReady = true;
+      render(sourceContent);
+      document.getElementById('statusRight').textContent = `📄 ${repo}/${HC_PATH}`;
+    } catch(err) { toast(`Sync Failed: ${err.message}`); }
+  });
+
+  document.getElementById('githubPushBtn').addEventListener('click', async () => {
+    try {
+      const meta = await ghApi('GET', HC_PATH);
+      const payload = { message: "AI Update", content: toBase64(sourceContent), sha: meta.sha };
+      await ghApi('PUT', HC_PATH, payload);
+      toast("Pushed successfully!");
+    } catch(e) { toast(`Push Error: ${e.message}`); }
+  });
+
+  setTimeout(loadToolbarRepos, 500);
+</script>
+</body>
+</html>
