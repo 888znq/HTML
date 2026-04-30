@@ -3,6 +3,9 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="theme-color" content="#003300">
+<link rel="manifest" href="manifest.json">
+<link rel="apple-touch-icon" href="icon-192.png">
 <title>AI Compile - Hardcoded Sync</title>
 <style>
 * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -329,6 +332,15 @@ Ignore indentation differences. Provide code only.]`;
   });
 
   setTimeout(loadToolbarRepos, 500);
+
+  /* ── PWA SERVICE WORKER REGISTRATION ── */
+  if ('serviceWorker' in navigator) {
+    window.addEventListener('load', () => {
+      navigator.serviceWorker.register('sw.js')
+        .then(reg => console.log('Service Worker registered!', reg))
+        .catch(err => console.log('Service Worker failed:', err));
+    });
+  }
 </script>
 </body>
 </html>
