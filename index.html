@@ -58,6 +58,39 @@ button.btn:disabled { opacity: 0.5; cursor: not-allowed; border-color: #555; col
 #tokenSaveBtn:hover { background: rgba(0,255,136,0.3); }
 #tokenClearBtn { background: rgba(255,85,85,0.1); border-color: #ff5555; color: #ff5555; }
 #tokenClearBtn:hover { background: rgba(255,85,85,0.25); }
+
+/* ── View Mode Overrides ── */
+body.view-mode { padding-bottom: 0; }
+body.view-mode #toolbar, 
+body.view-mode #statusBar { display: none !important; }
+body.view-mode #editorPane { width: 0 !important; min-width: 0 !important; border-right: none !important; }
+body.view-mode #splitPane { bottom: 0; }
+
+/* Floating Exit Button */
+#exitViewBtn {
+  position: fixed;
+  bottom: 24px;
+  right: 24px;
+  z-index: 1000;
+  background: rgba(13, 15, 43, 0.9);
+  border: 1px solid #00ff88;
+  color: #00ff88;
+  padding: 10px 18px;
+  border-radius: 30px;
+  font: 700 12px/1 'JetBrains Mono', monospace;
+  cursor: pointer;
+  backdrop-filter: blur(8px);
+  box-shadow: 0 4px 15px rgba(0, 255, 136, 0.2);
+  display: none;
+  transition: all 0.2s ease;
+}
+#exitViewBtn:hover {
+  background: rgba(0, 255, 136, 0.15);
+  transform: translateY(-2px);
+}
+body.view-mode #exitViewBtn {
+  display: block;
+}
 </style>
 </head>
 <body>
@@ -87,6 +120,8 @@ button.btn:disabled { opacity: 0.5; cursor: not-allowed; border-color: #555; col
   </select>
   <button id="reloadReposBtn" class="btn" style="border-color: #6272a4; color: #6272a4; max-width: 46px;" title="Retry loading repos">🔄</button>
   <button id="githubPushBtn" class="btn" style="border-color: #00ff88; color: #00ff88;">⬆ Push Changes</button>
+  
+  <button id="enterViewBtn" class="btn" style="border-color: #00ff88; color: #00ff88; max-width: 80px;" title="Full Screen Preview">👁️ View</button>
   <button id="tokenSettingsBtn" class="btn" style="border-color: #6272a4; color: #6272a4; max-width: 46px;" title="GitHub Token Settings">🔑</button>
 </div>
 
@@ -136,6 +171,9 @@ button.btn:disabled { opacity: 0.5; cursor: not-allowed; border-color: #555; col
 </div>
 
 <div id="toast"></div>
+
+<!-- Floating View Mode Exit Button -->
+<button id="exitViewBtn" title="Return to Editor">⬅ Exit View Mode</button>
 
 <script>
   // ── RUNTIME CONFIG: all values from localStorage only ──
@@ -478,6 +516,20 @@ Ignore indentation differences. Provide code only.]`;
   document.getElementById('reloadReposBtn').addEventListener('click', () => {
     toast('Reloading repos…');
     loadToolbarRepos();
+  });
+
+  /* ── VIEW MODE TOGGLE ── */
+  document.getElementById('enterViewBtn').addEventListener('click', () => {
+    document.body.classList.add('view-mode');
+    toast('View Mode active');
+  });
+
+  document.getElementById('exitViewBtn').addEventListener('click', () => {
+    document.body.classList.remove('view-mode');
+    // Using a slight delay to ensure Monaco resizes AFTER the CSS width transition finishes
+    if (monacoEditor) {
+      setTimeout(() => monacoEditor.layout(), 260); 
+    }
   });
 
   setTimeout(loadToolbarRepos, 500);
